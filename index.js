@@ -8,8 +8,15 @@ function sleeper(ms) {
   };
 }
 
+function addZero(i) {
+  if (i < 10) {
+    i = "0" + i;
+  }
+  return i;
+}
+
 function launchChromeAndRunLighthouse(url, startingUrl, opts, config = null) {
-  return chromeLauncher.launch({startingUrl: startingUrl}).then(sleeper(6000)).then(chrome => {
+  return chromeLauncher.launch({startingUrl: startingUrl}).then(sleeper(10000)).then(chrome => {
     opts.port = chrome.port;
     return lighthouse(url, opts, config).then(results => {
       // use results.lhr for the JS-consumeable output
@@ -20,50 +27,65 @@ function launchChromeAndRunLighthouse(url, startingUrl, opts, config = null) {
     });
   });
 }
+
 const opts = {
-  onlyCategories: ['accessibility']
+  onlyCategories: ['accessibility'],
+  emulatedFormFactor: 'desktop'
 };
 
-
-// Setup csv
-const date = new Date()
-const filename = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}${date.getMinutes()}${date.getSeconds()}.csv`
-let lines = ''
+function writeLine(vendorId, vendor, url, urlType, score, issueKey, itemTitle, itemDescription, impact) {
+  return `"${vendorId}","${vendor}","${url}","${urlType}","${score}","${issueKey}","${itemTitle}","${itemDescription}","${impact}",\r\n`
+}
 
 
-// fs.writeFileSync(`${path}.json`, JSON.stringify(items, null, 2))
+
+function runVendorAudit(vendor, filename) {
+  // Setup csv
+  let lines = ''
+
+  const startingUrl = vendor.id !== '' ? `https://www.nclive.org/cgi-bin/nclsm?rsrc=${vendor.id}` : null
+  const promises = vendor.urls.map(url => {
+    return launchChromeAndRunLighthouse(url.url,
+      startingUrl, opts).then(results => {
+      if (results.runtimeError.code === "NO_ERROR") {
+        for (const audit of Object.values(results.audits)) {
+          if (audit.score === 0) {
+            lines += writeLine(vendor.id, vendor.name, url.url,
+                url.type, results.categories.accessibility.score * 100,
+                audit.id, audit.title, audit.description,
+                audit.details.impact)
+          }
+        }
+      } else {
+        lines += writeLine(vendor.id, vendor.name, url, url.type, 0,
+            'error',
+            'Error with url', results.runtimeError.message, 'none')
+      }
+    })
+  })
+
+  Promise.all(promises).then(() => {
+    console.log('file')
+    fs.appendFile(`./reports/${filename}.csv`, lines)
+  })
+  return true
+}
 
 
 const vendors = require('./config.json')
-
-launchChromeAndRunLighthouse("https://fod.infobase.com/p_Home.aspx", "https://www.nclive.org/cgi-bin/nclsm?rsrc=379", opts).then(results => {
-  fs.writeFileSync(`./reports/${filename}`, JSON.stringify(results, null, 2))
-});
-
-for (const vendor of vendors) {
-  for (const url of vendor.urls) {
-    // launchChromeAndRunLighthouse(url.url, opts).then(results => {
-    //   console.log(results)
-    // });
-  }
-}
+runVendorAudit(vendors[0],'audit')
 
 /*
-First check for results.runtimeError.code === "NO_ERROR"
+const date = new Date()
+const filename = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}${date.getMinutes()}${date.getSeconds()}.csv`
+fs.writeFileSync(`./reports/${filename}.csv`, '')
 
-  "runtimeError": {
-    "code": "NO_ERROR",
-    "message": ""
-  },
+function loop(i, vendors) {
+  setTimeout(() => {
+    runVendorAudit(vendors[i], filename)
+    if (--i) loop(i, vendors)
+  }, 30000)
+}
 
-
-Loop through results.audits
-
-Score = 1 = pass
-Score = 0 = fail
-Store the id, title, and description
-
-
-Final score = results.categories.accessibility.score
+loop(vendors.length - 1, vendors)
 */
-

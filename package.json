@@ -9,6 +9,7 @@
   "author": "Luke Aeschleman",
   "license": "ISC",
   "devDependencies": {
+    "csv": "^4.0.0",
     "lighthouse": "^3.2.1"
   }
 }
